@@ -100,7 +100,7 @@ module.exports = async function handler(req, res) {
           </div>
         </div>
         <div style="background:#1a1410;padding:14px 32px;font-size:11px;color:rgba(255,255,255,0.4);text-align:center;">
-          Lucky Key & Fuji Ya · (TODO) ___-____
+          Lucky Key & Fuji Ya · (770) 270-1188
         </div>
       </div>`;
 
@@ -202,7 +202,7 @@ module.exports = async function handler(req, res) {
       highlightSub: orderItems[0]?.name || '',
       highlightSub2: special ? '📝 ' + special : '',
       tableRows: '',
-      notice: `We look forward to seeing you! Questions? Call us at (TODO) ___-____`,
+      notice: `We look forward to seeing you! Questions? Call us at (770) 270-1188`,
       isAdmin: false,
     });
 
@@ -239,7 +239,7 @@ module.exports = async function handler(req, res) {
       guestItemLines,
       guestPtsTxt,
       `💰 Total: $${(total || 0).toFixed(2)}`,
-      `Questions? (TODO) ___-____${arrivedLink}`,
+      `Questions? (770) 270-1188${arrivedLink}`,
     ].filter(Boolean).join('\n');
     adminEmailSubject = `🥢 New Order — ${customer?.name || 'Guest'} · $${(total || 0).toFixed(2)} · ${pickup}`;
     guestEmailSubject = `Your Lucky Key & Fuji Ya Order is Confirmed! 🥢`;
@@ -389,7 +389,7 @@ function buildOrderEmailHtml({ firstName, lastName, phone, guestEmail, pickup, i
     ${totalsHtml}
     ${!isAdmin ? `<div style="background:#f0f9f0;border-left:4px solid #27ae60;padding:14px 16px;border-radius:4px;font-size:13px;color:#555;margin-bottom:20px;">
       Your payment has been processed. Please pick up your order at the restaurant.<br><br>
-      Questions? Call us at <strong>(TODO) ___-____</strong>
+      Questions? Call us at <strong>(770) 270-1188</strong>
     </div>
     ${pickupType === 'curbside' ? `
     <div style="text-align:center;margin-bottom:20px;">
@@ -401,7 +401,7 @@ function buildOrderEmailHtml({ firstName, lastName, phone, guestEmail, pickup, i
     </div>` : ''}` : ''}
     <div style="text-align:center;color:#bbb;font-size:12px;border-top:1px solid #eee;padding-top:16px;">
       Lucky Key & Fuji Ya · 4135 Lavista Rd #310, Tucker, GA 30084<br>
-      (TODO) ___-____
+      (770) 270-1188
     </div>
   </div>
 </body></html>`;

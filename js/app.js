@@ -396,7 +396,7 @@ async function sendArrivedMessage(passedOrderId) {
     if (statusEl) statusEl.textContent = 'We will bring your order right out!';
   } catch(e) {
     if (btn) { btn.disabled = false; btn.textContent = '🚗 I Have Arrived!'; }
-    if (statusEl) statusEl.textContent = 'Please try again or call us at (TODO) ___-____';
+    if (statusEl) statusEl.textContent = 'Please try again or call us at (770) 270-1188';
     console.error('Arrived error:', e);
   }
 }
