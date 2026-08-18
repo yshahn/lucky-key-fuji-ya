@@ -2793,7 +2793,7 @@ function loadTodaysPicks() {
         '<div class="fi-price">' + priceHtml + '</div>' +
         minNote +
       '</div>' +
-      '<div class="fi-emoji">' + (pick.emoji || getEmojiForItem(pick.name)) + '</div>';
+    "'<div class=\"fi-emoji\">' + getEmojiForItem(pick.name) + '</div>';"
     div.addEventListener('click', () => handlePickClick(pick));
     container.appendChild(div);
   });
