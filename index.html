@@ -16,6 +16,7 @@
 <link rel="stylesheet" href="css/style.css?v=20260815delivery1" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;500;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet" />
+  <style>#guest-chips::-webkit-scrollbar{display:none;}</style>
 </head>
 <body>
 <div class="phone-frame">
@@ -183,6 +184,8 @@
 </div>
 <div class="cart-arrow">→ Checkout</div>
 </div>
+<!-- Group orders: pick which guest new items go to, or add another guest -->
+<div id="guest-bar" style="display:none; margin:6px 16px 0; align-items:center; gap:8px;"></div>
 <div id="lunch-notice" style="display:none; margin:8px 20px 0; padding:10px 14px; background:#fdf8f0; border:1px solid var(--gold-light); border-radius:10px; font-size:11px; color:var(--muted);">
 🕐 Lunch served daily until 3 PM
 </div>
@@ -575,7 +578,7 @@ Got it
 
 <!-- ══ SCRIPTS ══ -->
 <!-- app.js 먼저 로드 (전역 함수 정의) -->
-<script src="js/app.js?v=20260918lunchguard1"></script>
+<script src="js/app.js?v=20261007groups1"></script>
 
 <!-- Firebase 초기화 — app.js 로드 후 실행 -->
 <script type="module">
