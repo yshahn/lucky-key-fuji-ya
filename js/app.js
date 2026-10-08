@@ -416,6 +416,117 @@ const menuData = {
 };
 // ── CART STATE
 let cart = [];
+
+// ═════════════════════════════════
+// GROUP ORDERS — split one order across guests
+// ═════════════════════════════════
+// Each cart entry carries a `guest` number (1, 2, 3 …). Payment is still ONE
+// checkout; the guest numbers only change how the order is itemized (cart,
+// checkout, confirmation emails/texts, admin, receipt). A single-guest order
+// behaves exactly as before: every entry is simply guest 1.
+let currentGuest = 1;   // guest that newly added items are assigned to
+let guestTotal = 1;     // number of guest groups (the last one may still be empty)
+
+// BEGIN-GROUP-HELPERS
+function cartGuest(item) { return parseInt(item && item.guest) || 1; }
+function guestItemCount(g) { return cart.filter(i => cartGuest(i) === g).length; }
+function activeGuestCount() { return new Set(cart.map(cartGuest)).size; }
+function findLastCartIndex(pred) {
+  for (let i = cart.length - 1; i >= 0; i--) { if (pred(cart[i])) return i; }
+  return -1;
+}
+function resetGuests() { currentGuest = 1; guestTotal = 1; renderGuestBar(); }
+
+// Keeps guest numbers contiguous (1..n). A guest whose items were all removed
+// disappears and the guests after it shift down — except a trailing EMPTY guest
+// (the one just added, waiting for its first item), which is kept.
+function normalizeGuests() {
+  if (cart.length === 0) { currentGuest = 1; guestTotal = 1; return; }
+  let maxG = Math.max(guestTotal, currentGuest);
+  cart.forEach(i => { if (cartGuest(i) > maxG) maxG = cartGuest(i); });
+  const counts = new Array(maxG + 1).fill(0);
+  cart.forEach(i => { counts[cartGuest(i)]++; });
+  const map = {};
+  let n = 0;
+  for (let g = 1; g <= maxG; g++) {
+    if (counts[g] > 0 || g === maxG) map[g] = ++n;
+  }
+  let newCurrent = map[currentGuest];
+  if (newCurrent === undefined) {
+    newCurrent = n;
+    for (let g = currentGuest + 1; g <= maxG; g++) {
+      if (map[g] !== undefined) { newCurrent = map[g]; break; }
+    }
+  }
+  cart.forEach(i => { i.guest = map[cartGuest(i)]; });
+  guestTotal = n;
+  currentGuest = newCurrent;
+}
+
+function addGuest() {
+  if (cart.length === 0) return;
+  normalizeGuests();
+  if (guestItemCount(guestTotal) === 0) {
+    // The last guest has no items yet — don't pile up empty guests.
+    if (currentGuest === guestTotal) {
+      if (typeof showToastMsg === 'function') showToastMsg('Add an item for Guest ' + guestTotal + ' first');
+      return;
+    }
+    currentGuest = guestTotal;
+  } else {
+    guestTotal += 1;
+    currentGuest = guestTotal;
+  }
+  renderGuestBar();
+  refreshMenuForGuest();
+}
+
+function selectGuest(g) {
+  if (g === currentGuest) return;
+  currentGuest = g;
+  renderGuestBar();
+  refreshMenuForGuest();
+}
+// END-GROUP-HELPERS
+
+// The menu's "✓ 2" / quantity badges count the CURRENT guest's items only, so
+// switching guests has to redraw the menu (keeping the scroll position).
+function refreshMenuForGuest() {
+  const ml = document.getElementById('menu-list');
+  const st = ml ? ml.scrollTop : 0;
+  const tab = document.querySelector('.menu-tab.active')?.getAttribute('onclick')?.match(/'(\w+)'/)?.[1];
+  if (tab) buildMenu(tab);
+  if (ml) ml.scrollTop = st;
+}
+
+// "Guest 1 · Guest 2 · … + Add guest" row under the cart bar.
+function renderGuestBar() {
+  const bar = document.getElementById('guest-bar');
+  if (!bar) return;
+  if (cart.length === 0) { bar.style.display = 'none'; bar.innerHTML = ''; return; }
+  bar.style.display = 'flex';
+  const base = 'flex-shrink:0;padding:6px 12px;border-radius:16px;font-size:12px;font-weight:600;font-family:inherit;white-space:nowrap;cursor:pointer;';
+  let left;
+  if (guestTotal > 1) {
+    let chips = '';
+    for (let g = 1; g <= guestTotal; g++) {
+      const n = guestItemCount(g);
+      const on = g === currentGuest;
+      chips += '<button type="button" onclick="selectGuest(' + g + ')" style="' + base +
+        (on ? 'background:var(--ink);color:var(--gold);border:1px solid var(--ink);'
+            : 'background:#fff;color:var(--ink);border:1px solid var(--border);') +
+        '">Guest ' + g + (n ? ' · ' + n : '') + '</button>';
+    }
+    left = '<div id="guest-chips" style="flex:1;min-width:0;position:relative;display:flex;gap:6px;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;">' + chips + '</div>';
+  } else {
+    left = '<div style="flex:1;font-size:11px;color:var(--muted);">Ordering for a group?</div>';
+  }
+  bar.innerHTML = left +
+    '<button type="button" onclick="addGuest()" style="' + base + 'background:transparent;color:var(--gold);border:1px solid var(--gold);">+ Add guest</button>';
+  const chipsEl = document.getElementById('guest-chips');
+  const act = chipsEl && chipsEl.children[currentGuest - 1];
+  if (chipsEl && act) chipsEl.scrollLeft = act.offsetLeft - (chipsEl.clientWidth - act.offsetWidth) / 2;
+}
 let guestCount = 2;
 let usePoints = false;
 const pickupType = 'instore';
@@ -952,7 +1063,7 @@ function groupCartItems() {
   const groups = [];
   cart.forEach(item => {
     const lastGroup = groups[groups.length - 1];
-    const isTopping = lastGroup && item.name.startsWith(lastGroup.name + ' + ');
+    const isTopping = lastGroup && cartGuest(item) === cartGuest(lastGroup) && item.name.startsWith(lastGroup.name + ' + ');
     if (isTopping) {
       lastGroup.toppings.push(item);
     } else {
@@ -995,19 +1106,33 @@ function buildCartScreen() {
   if (btnEl) btnEl.style.display = 'block';
 
 // 같은 이름 아이템 그룹핑 (수량 합산)
+  // (손님(guest)별로 따로 합산)
   const rawGroups = groupCartItems();
   const groupMap = new Map();
   rawGroups.forEach(item => {
-    if (groupMap.has(item.name)) {
-      groupMap.get(item.name).qty++;
+    const key = cartGuest(item) + '|' + item.name;
+    if (groupMap.has(key)) {
+      groupMap.get(key).qty++;
     } else {
-      groupMap.set(item.name, { ...item, qty: 1 });
+      groupMap.set(key, { ...item, qty: 1 });
     }
   });
-  const groups = [...groupMap.values()];
+  // Sorted by guest number (stable, so items keep the order they were added in)
+  const groups = [...groupMap.values()].sort((a, b) => cartGuest(a) - cartGuest(b));
+  const multiGuest = activeGuestCount() > 1;
+  let lastGuestShown = null;
   listEl.innerHTML = '';
 
   groups.forEach((item, gi) => {
+    const guestNo = cartGuest(item);
+    if (multiGuest && guestNo !== lastGuestShown) {
+      lastGuestShown = guestNo;
+      const gSub = cart.filter(c => cartGuest(c) === guestNo).reduce((s, c) => s + c.price, 0);
+      const head = document.createElement('div');
+      head.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:16px 0 6px;font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--gold);border-bottom:1px solid var(--gold);';
+      head.innerHTML = '<span>Guest ' + guestNo + '</span><span>$' + gSub.toFixed(2) + '</span>';
+      listEl.appendChild(head);
+    }
     const toppingHtml = item.toppings.map(t =>
       `<div style="display:flex;align-items:center;gap:6px;padding:3px 0 0 36px;font-size:12px;color:var(--muted);">
         <span>${t.emoji || '🧂'}</span>
@@ -1036,9 +1161,9 @@ function buildCartScreen() {
       <button class="cart-del-btn" style="margin-left:4px;padding:6px 10px;border:1px solid #fde8e8;border-radius:8px;background:#fff;cursor:pointer;font-size:13px;flex-shrink:0;">🗑</button>
     `;
 
-    row.querySelector('.mi-qty-minus').addEventListener('click', () => cartQty(item.name, -1));
-    row.querySelector('.mi-qty-plus').addEventListener('click', () => cartQty(item.name, 1));
-    row.querySelector('.cart-del-btn').addEventListener('click', () => removeCartGroupByName(item.name, item.toppings.length));
+    row.querySelector('.mi-qty-minus').addEventListener('click', () => cartQty(item.name, -1, guestNo));
+    row.querySelector('.mi-qty-plus').addEventListener('click', () => cartQty(item.name, 1, guestNo));
+    row.querySelector('.cart-del-btn').addEventListener('click', () => removeCartGroupByName(item.name, item.toppings.length, guestNo));
 
     listEl.appendChild(row);
   });
@@ -1053,8 +1178,8 @@ function buildCartScreen() {
   }
 }
 
-function removeCartGroupByName(name, toppingCount) {
-  const mainIdx = cart.findIndex(c => c.name === name);
+function removeCartGroupByName(name, toppingCount, guest) {
+  const mainIdx = cart.findIndex(c => c.name === name && (guest === undefined || cartGuest(c) === guest));
   if (mainIdx === -1) return;
   cart.splice(mainIdx, 1 + toppingCount);
   updateCartBar();
@@ -1244,13 +1369,27 @@ function buildCheckoutSummary() {
     const groups = [];
     cart.forEach(item => {
       const lastGroup = groups[groups.length - 1];
-      const isTopping = lastGroup && item.name.startsWith(lastGroup.name + ' + ');
+      const isTopping = lastGroup && cartGuest(item) === cartGuest(lastGroup) && item.name.startsWith(lastGroup.name + ' + ');
       if (isTopping) { lastGroup.toppings.push(item); }
       else { groups.push({ ...item, toppings: [] }); }
     });
+    // Group order: list by guest (stable sort keeps the added order within a guest).
+    // Sorted BEFORE storing so removeCartGroup(gi) indexes the same order that is shown.
+    groups.sort((a, b) => cartGuest(a) - cartGuest(b));
     window._cartGroups = groups;
     editList.innerHTML = '';
+    const multiGuest = activeGuestCount() > 1;
+    let lastGuestShown = null;
     groups.forEach((item, gi) => {
+      const guestNo = cartGuest(item);
+      if (multiGuest && guestNo !== lastGuestShown) {
+        lastGuestShown = guestNo;
+        const gSub = cart.filter(c => cartGuest(c) === guestNo).reduce((s, c) => s + c.price, 0);
+        const head = document.createElement('div');
+        head.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:14px 0 6px;font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--gold);border-bottom:1px solid var(--gold);';
+        head.innerHTML = '<span>Guest ' + guestNo + '</span><span>$' + gSub.toFixed(2) + '</span>';
+        editList.appendChild(head);
+      }
       const toppingHtml = item.toppings.map(t =>
         `<div style="display:flex;align-items:center;gap:6px;padding:3px 0 0 36px;font-size:12px;color:var(--muted);">
           <span>${t.emoji || '🧂'}</span>
@@ -1300,7 +1439,7 @@ function removeCartGroup(gi) {
   const groups = window._cartGroups || [];
   const group = groups[gi];
   if (!group) return;
-  const mainIdx = cart.findIndex(c => c.name === group.name);
+  const mainIdx = cart.findIndex(c => c.name === group.name && cartGuest(c) === cartGuest(group));
   if (mainIdx === -1) return;
   const removeCount = 1 + group.toppings.length;
   cart.splice(mainIdx, removeCount);
@@ -1308,16 +1447,16 @@ function removeCartGroup(gi) {
   buildCheckoutSummary();
 }
 
-function cartQty(name, delta) {
+// `guest` = which guest's copy of the item to change; defaults to the guest
+// currently being ordered for (the menu's +/− buttons), while the My Cart rows
+// pass their own guest explicitly.
+function cartQty(name, delta, guest) {
+  const g = guest || currentGuest;
   if (delta === -1) {
-    const idx = cart.findLastIndex ? cart.findLastIndex(i => i.name === name)
-                                   : [...cart].reverse().findIndex(i => i.name === name);
-    if (idx !== -1) {
-      const realIdx = cart.findLastIndex ? idx : cart.length - 1 - idx;
-      cart.splice(realIdx, 1);
-    }
+    const idx = findLastCartIndex(i => i.name === name && cartGuest(i) === g);
+    if (idx !== -1) cart.splice(idx, 1);
   } else {
-    const existing = cart.find(i => i.name === name);
+    const existing = cart.find(i => i.name === name && cartGuest(i) === g);
     if (existing) cart.push({ ...existing });
   }
   updateCartBar();
@@ -1510,7 +1649,7 @@ if (fbItems.length > 0) {
       }
     }
 
-    const inCart = cart.filter(c => c.name === item.n || c.name.startsWith(item.n + ' — ') || c.name.startsWith(item.n + ' (')).length;
+    const inCart = cart.filter(c => cartGuest(c) === currentGuest && (c.name === item.n || c.name.startsWith(item.n + ' — ') || c.name.startsWith(item.n + ' ('))).length;
     const isSoldOut = item.soldOut === true;
     const div = document.createElement('div');
     if (isSoldOut) div.style.opacity = '0.55';
@@ -1619,13 +1758,16 @@ if (fbItems.length > 0) {
 }
 
 function updateCartBar() {
+  normalizeGuests();   // drop guests whose items were all removed, keep numbers 1..n
   const total = cart.reduce((s, i) => s + i.price, 0);
   const cc = document.getElementById('cart-count');
   const ct = document.getElementById('cart-total');
   const cb = document.getElementById('cart-bar');
-  if (cc) cc.textContent = cart.length + ' item' + (cart.length !== 1 ? 's' : '');
+  const guests = activeGuestCount();
+  if (cc) cc.textContent = cart.length + ' item' + (cart.length !== 1 ? 's' : '') + (guests > 1 ? ' · ' + guests + ' guests' : '');
   if (ct) ct.textContent = '$' + total.toFixed(2);
   if (cb) cb.style.display = cart.length > 0 ? 'flex' : 'none';
+  renderGuestBar();
 }
 
 function isLunchHours() {
@@ -1709,9 +1851,9 @@ function showLunchClosedPopup() {
 
 
 function addToCart(name, price, emoji, btn) {
-  cart.push({ name, price, emoji });
+  cart.push({ name, price, emoji, guest: currentGuest });
   if (btn) {
-    const count = cart.filter(c => c.name === name).length;
+    const count = cart.filter(c => c.name === name && cartGuest(c) === currentGuest).length;
     btn.classList.add('added');
     btn.textContent = '✓ ' + count;
   }
@@ -2461,8 +2603,12 @@ async function startStripeCheckout() {
     if (data.url) {
       const smsConsent = document.getElementById('sms-consent')?.checked || false;
       const specialRequest = document.getElementById('checkout-special-request')?.value.trim() || '';
+      // Guest numbers for a group order — renumbered 1..k over only the guests
+      // that actually have items, so the order never shows a gap.
+      const _gIds = [...new Set(cart.map(cartGuest))].sort((a, b) => a - b);
+      const _gMap = {}; _gIds.forEach((g, idx) => { _gMap[g] = idx + 1; });
       localStorage.setItem('prb_pending_order', JSON.stringify({
-        orderItems: cart.map(i => ({ name: i.name, price: i.price, emoji: i.emoji })),
+        orderItems: cart.map(i => ({ name: i.name, price: i.price, emoji: i.emoji, guest: _gMap[cartGuest(i)] })),
         subtotal, tax, tip, total,
         orderType,
         pickupTime: orderType === 'delivery' ? (deliveryDateStr + ' ' + selectedDeliveryTimeLabel) : (selectedPickupTime ? selectedPickupTime.label : 'ASAP'),
@@ -2486,6 +2632,7 @@ function checkPaymentResult() {
   const params = new URLSearchParams(window.location.search);
   if (params.get('payment') === 'success') {
     cart = [];
+    resetGuests();
     document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
     document.getElementById('success-screen').classList.add('active');
     document.getElementById('bottom-nav').style.display = 'none';
@@ -2640,7 +2787,7 @@ function showSuccess(type) {
   document.getElementById('earned-pts').textContent = c.pts;
   const earnedBadge = document.querySelector('.earned-badge');
   if (earnedBadge) earnedBadge.style.display = (type === 'reservation' || !c.pts) ? 'none' : 'block';
-  if (type === 'payment') { cart = []; }
+  if (type === 'payment') { cart = []; resetGuests(); }
 }
 
 // ─────────────────────────────────
@@ -2891,8 +3038,8 @@ function handlePickClick(pick) {
         return;
       }
       // Add 2 items at price of 1
-      cart.push({ name: pick.name, price: orig, emoji, _b1g1: true });
-      cart.push({ name: pick.name + ' (Free)', price: 0, emoji, _b1g1: true });
+      cart.push({ name: pick.name, price: orig, emoji, _b1g1: true, guest: currentGuest });
+      cart.push({ name: pick.name + ' (Free)', price: 0, emoji, _b1g1: true, guest: currentGuest });
       updateCartBar();
       goTo('order');
       setTimeout(() => goToCart(), 300);
@@ -3006,12 +3153,15 @@ function reorderItems(orderIdx) {
   const orderItems = o.orderItems || o.items || [];
   if (!orderItems.length) { alert('No items found in this order.'); return; }
   cart = [];
+  resetGuests();
   orderItems.forEach(i => {
     const name  = i.name || i.n || '';
     const price = parseFloat(i.price || i.p) || 0;
     const emoji = i.emoji || i.e || '';
+    currentGuest = parseInt(i.guest) || 1;   // group order: back to the guest it was ordered for
     if (name) addToCart(name, price, emoji, null);
   });
+  currentGuest = 1;
   updateCartBar();
   goTo('order');
   goToCheckout();
